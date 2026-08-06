@@ -81,17 +81,21 @@ def run_match(
     config: Config,
     progress_cb=None,
     cancel_event=None,
+    client=None,
 ) -> list:
     """根据 config.match_mode 分发匹配逻辑。
 
     batch:      一次 API 调用匹配全部预告片。
     candidate:  每个预告片本地筛候选后单独调用。
 
-    progress_cb(index, total) 用于更新进度；cancel_event 可用于取消。
+    progress_cb(index, total) 用于更新进度；cancel_event 用于取消；
+    client 可传入外部 AIClient（以便中止请求），不传则内部创建。
     """
+    if client is None:
+        client = AIClient(config)
     if config.match_mode == "candidate":
-        return _run_candidate(trailers, movies, config, progress_cb, cancel_event)
-    return _run_batch(trailers, movies, config, progress_cb, cancel_event)
+        return _run_candidate(trailers, movies, config, progress_cb, cancel_event, client)
+    return _run_batch(trailers, movies, config, progress_cb, cancel_event, client)
 
 
 def _run_candidate(
@@ -100,9 +104,11 @@ def _run_candidate(
     config: Config,
     progress_cb=None,
     cancel_event=None,
+    client=None,
 ) -> list:
     """逐条候选模式: 每预告片 rapidfuzz 筛选 top-N 候选后调用 AI 确认。"""
-    client = AIClient(config)
+    if client is None:
+        client = AIClient(config)
     total = len(trailers)
     results: list = []
 
@@ -114,8 +120,12 @@ def _run_candidate(
             results.append(MatchResult(trailer=trailer))
         else:
             try:
-                answer = client.ask_match(trailer.name, [m.name for m in candidates])
+                answer = client.ask_match(
+                    trailer.name, [m.name for m in candidates]
+                )
             except Exception as exc:
+                if cancel_event is not None and cancel_event.is_set():
+                    break
                 results.append(
                     MatchResult(trailer=trailer, reason=f"API 调用失败: {exc}")
                 )
@@ -159,6 +169,7 @@ def _run_batch(
     config: Config,
     progress_cb=None,
     cancel_event=None,
+    client=None,
 ) -> list:
     """批量模式: 所有预告片+正片名一次调用，一次返回全部匹配。"""
     if cancel_event is not None and cancel_event.is_set():
@@ -171,7 +182,8 @@ def _run_batch(
     if not trailers:
         return []
 
-    client = AIClient(config)
+    if client is None:
+        client = AIClient(config)
 
     answers = None
     for attempt in (1, 2):  # 失败自动重试一次
@@ -183,6 +195,8 @@ def _run_batch(
             )
             break
         except Exception as exc:
+            if cancel_event is not None and cancel_event.is_set():
+                break  # 用户已取消
             if attempt == 2:
                 results = [
                     MatchResult(trailer=t, reason=f"批量调用失败: {exc}")

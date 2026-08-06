@@ -34,37 +34,64 @@ def _extract_json(text: str):
 class AIClient:
     def __init__(self, config: Config):
         self.config = config
+        self._http = None  # 当前底层 httpx 客户端，关闭它可中止进行中的请求
+        self._aborted = False
+
+    def abort(self) -> None:
+        """中止当前进行中的请求：关闭底层连接，阻塞的请求会立刻抛错。"""
+        self._aborted = True
+        http, self._http = self._http, None
+        if http is not None:
+            try:
+                http.close()
+            except Exception:
+                pass
 
     def _client(self):
+        import httpx
         from openai import OpenAI
+        http = httpx.Client(timeout=120)
+        self._http = http
         return OpenAI(
             base_url=self.config.api_base_url or None,
             api_key=self.config.api_key or "EMPTY",
             timeout=120,
             max_retries=1,
+            http_client=http,
         )
 
     def _complete(self, prompt: str) -> str:
         """发起一次对话补全，自动兼容不支持 response_format 的接口。"""
+        if self._aborted:
+            raise RuntimeError("匹配已取消")
         client = self._client()
         messages = [
             {"role": "system", "content": "你是一个严谨的电影匹配助手，只输出 JSON。"},
             {"role": "user", "content": prompt},
         ]
         try:
-            response = client.chat.completions.create(
-                model=self.config.model,
-                messages=messages,
-                temperature=self.config.temperature,
-                response_format={"type": "json_object"},
-            )
-        except Exception:
-            response = client.chat.completions.create(
-                model=self.config.model,
-                messages=messages,
-                temperature=self.config.temperature,
-            )
-        return response.choices[0].message.content
+            try:
+                response = client.chat.completions.create(
+                    model=self.config.model,
+                    messages=messages,
+                    temperature=self.config.temperature,
+                    response_format={"type": "json_object"},
+                )
+            except Exception:
+                response = client.chat.completions.create(
+                    model=self.config.model,
+                    messages=messages,
+                    temperature=self.config.temperature,
+                )
+            return response.choices[0].message.content
+        finally:
+            # 请求结束，关闭底层连接；若请求中途被 abort()，此处已无连接可关
+            http, self._http = self._http, None
+            if http is not None:
+                try:
+                    http.close()
+                except Exception:
+                    pass
 
     def ask_match(self, trailer_name: str, candidate_movies: list) -> dict:
         """让 AI 从候选正片名中为单个预告片选择最佳匹配。

@@ -93,6 +93,25 @@ def test_scan_multiple_dirs():
     print("scan_multiple_dirs ok")
 
 
+def test_trailer_order_folder_first():
+    """预告片应按所在文件夹名排序，同文件夹内再按文件名。"""
+    with TemporaryDirectory() as td:
+        root = Path(td)
+        # 文件夹名 B > A，但文件名 a < b；应文件夹优先 -> B/A 下的 b.mp4 先于 A/B 下的 a.mp4
+        fa = root / "B"
+        fb = root / "A"
+        fa.mkdir()
+        fb.mkdir()
+        (fa / "a.mp4").write_bytes(b"1")
+        (fb / "b.mp4").write_bytes(b"2")
+        (fb / "c.mp4").write_bytes(b"3")
+        trailers = scan_trailer_dirs([str(root)], [])
+        assert [t.name for t in trailers] == ["b.mp4", "c.mp4", "a.mp4"], [
+            t.name for t in trailers
+        ]
+    print("trailer_order_folder_first ok")
+
+
 def test_movie_name_from_file():
     """电影名应以文件夹内主视频文件名为准，且排除已重命名的预告片。"""
     with TemporaryDirectory() as td:
@@ -143,6 +162,7 @@ if __name__ == "__main__":
     test_conflict_marking()
     test_old_config_compat()
     test_scan_multiple_dirs()
+    test_trailer_order_folder_first()
     test_movie_name_from_file()
     test_file_based_rename()
     print("ALL TESTS OK")

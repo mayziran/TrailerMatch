@@ -78,22 +78,27 @@ def scan_trailers(trailer_dir: Path, regexes: list) -> list:
         if compiled and not any(rx.search(path.name) for rx in compiled):
             continue
         result.append(TrailerFile(path))
-    result.sort(key=lambda t: t.name.lower())
+    # 优先按视频所在文件夹名排序，同文件夹内再按文件名排序
+    result.sort(key=lambda t: (t.path.parent.name.lower(), t.name.lower()))
     return result
 
 
 def scan_trailer_dirs(trailer_dirs: list, regexes: list) -> list:
-    """聚合扫描多个预告片目录，按文件路径去重。"""
+    """聚合扫描多个预告片目录，按文件路径去重。
+
+    排序：优先按“用户添加的目录”分组（按目录路径排序），
+    同目录内沿用 scan_trailers 的“所在子文件夹名 → 文件名”顺序。
+    """
     seen = set()
-    result = []
+    items = []
     for d in trailer_dirs:
         for t in scan_trailers(d, regexes):
             key = str(t.path).lower()
             if key not in seen:
                 seen.add(key)
-                result.append(t)
-    result.sort(key=lambda t: t.name.lower())
-    return result
+                items.append((d, t))
+    items.sort(key=lambda pair: str(pair[0]).lower())
+    return [t for _, t in items]
 
 
 def scan_movies(movie_dir: Path) -> list:

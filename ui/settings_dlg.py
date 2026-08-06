@@ -1,6 +1,6 @@
 """设置对话框: 配置 AI 接口。"""
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QFormLayout, QLineEdit, QSpinBox,
+    QComboBox, QDialog, QDoubleSpinBox, QFormLayout, QLineEdit, QSpinBox,
     QDialogButtonBox, QVBoxLayout,
 )
 
@@ -17,6 +17,12 @@ class SettingsDialog(QDialog):
         self.api_key = QLineEdit(config.api_key)
         self.api_key.setEchoMode(QLineEdit.Password)
         self.model = QLineEdit(config.model)
+        self.temperature = QDoubleSpinBox()
+        self.temperature.setRange(0.0, 2.0)
+        self.temperature.setSingleStep(0.1)
+        self.temperature.setDecimals(1)
+        self.temperature.setValue(config.temperature)
+        self.temperature.setToolTip("越低越稳定（0 最保守），越高越发散")
         self.min_conf = QSpinBox()
         self.min_conf.setRange(0, 100)
         self.min_conf.setValue(config.min_confidence)
@@ -35,6 +41,7 @@ class SettingsDialog(QDialog):
         form.addRow("API Base URL", self.api_base)
         form.addRow("API Key", self.api_key)
         form.addRow("模型", self.model)
+        form.addRow("温度", self.temperature)
         form.addRow("匹配模式", self.mode)
         form.addRow("最低置信度", self.min_conf)
         form.addRow("候选正片数量", self.max_candidates)
@@ -51,6 +58,7 @@ class SettingsDialog(QDialog):
         config.api_base_url = self.api_base.text().strip()
         config.api_key = self.api_key.text().strip()
         config.model = self.model.text().strip() or config.model
+        config.temperature = self.temperature.value()
         config.match_mode = self.mode.currentData()
         config.min_confidence = self.min_conf.value()
         config.max_candidates = self.max_candidates.value()

@@ -3,6 +3,7 @@ import threading
 
 from PySide6.QtCore import QThread, Signal
 
+from core.ai_client import AIClient
 from core.config import Config
 from core.matcher import run_match
 from core.scanner import scan_movies, scan_trailer_dirs
@@ -41,16 +42,22 @@ class MatchWorker(QThread):
         self.movies = movies
         self.config = config
         self._cancel = threading.Event()
+        self._client = None
 
     def cancel(self):
         self._cancel.set()
+        # 中止进行中的请求，让阻塞的 HTTP 调用立刻返回
+        if self._client is not None:
+            self._client.abort()
 
     def run(self):
+        self._client = AIClient(self.config)
         results = run_match(
             self.trailers,
             self.movies,
             self.config,
             progress_cb=self.progress.emit,
             cancel_event=self._cancel,
+            client=self._client,
         )
         self.done.emit(results)
