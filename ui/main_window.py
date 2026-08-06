@@ -579,6 +579,5 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         if self._match_worker is not None and self._match_worker.isRunning():
             self._match_worker.cancel()
-        self._save_layout()
-        self.config.save()
+        self._save_layout()  # 内部已调用 config.save()
         super().closeEvent(event)
