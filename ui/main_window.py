@@ -252,7 +252,10 @@ class MainWindow(QMainWindow):
         self.btn_stop.setEnabled(True)
         self.btn_execute.setEnabled(False)
         self.progress.setVisible(True)
-        self.progress.setRange(0, len(self._trailers))
+        if self.config.match_mode == "batch":
+            self.progress.setRange(0, 1)
+        else:
+            self.progress.setRange(0, len(self._trailers))
         self.progress.setValue(0)
 
         self._match_worker = MatchWorker(self._trailers, self._movies, self.config)

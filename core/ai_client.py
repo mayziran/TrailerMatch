@@ -44,8 +44,30 @@ class AIClient:
             max_retries=1,
         )
 
+    def _complete(self, prompt: str) -> str:
+        """发起一次对话补全，自动兼容不支持 response_format 的接口。"""
+        client = self._client()
+        messages = [
+            {"role": "system", "content": "你是一个严谨的电影匹配助手，只输出 JSON。"},
+            {"role": "user", "content": prompt},
+        ]
+        try:
+            response = client.chat.completions.create(
+                model=self.config.model,
+                messages=messages,
+                temperature=self.config.temperature,
+                response_format={"type": "json_object"},
+            )
+        except Exception:
+            response = client.chat.completions.create(
+                model=self.config.model,
+                messages=messages,
+                temperature=self.config.temperature,
+            )
+        return response.choices[0].message.content
+
     def ask_match(self, trailer_name: str, candidate_movies: list) -> dict:
-        """让 AI 从候选正片名中为预告片选择最佳匹配。
+        """让 AI 从候选正片名中为单个预告片选择最佳匹配。
 
         返回结构: {"movie": str|None, "confidence": int, "reason": str}
         """
@@ -68,31 +90,7 @@ class AIClient:
 输出格式(严格 JSON):
 {{"movie": "候选完整名称或 null", "confidence": 0到100的整数, "reason": "简短理由"}}"""
 
-        try:
-            client = self._client()
-            response = client.chat.completions.create(
-                model=self.config.model,
-                messages=[
-                    {"role": "system", "content": "你是一个严谨的电影匹配助手，只输出 JSON。"},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=self.config.temperature,
-                response_format={"type": "json_object"},
-            )
-            content = response.choices[0].message.content
-        except Exception:
-            # 部分兼容接口不支持 response_format，去掉后重试
-            client = self._client()
-            response = client.chat.completions.create(
-                model=self.config.model,
-                messages=[
-                    {"role": "system", "content": "你是一个严谨的电影匹配助手，只输出 JSON。"},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=self.config.temperature,
-            )
-            content = response.choices[0].message.content
-
+        content = self._complete(prompt)
         data = _extract_json(content)
         movie = data.get("movie")
         if movie in (None, "", "null"):
@@ -107,3 +105,68 @@ class AIClient:
             "confidence": confidence,
             "reason": str(data.get("reason", "")),
         }
+
+    def ask_batch(self, trailer_names: list, movie_names: list) -> list:
+        """一次调用为所有预告片匹配正片。
+
+        返回与 trailer_names 对齐的列表，每项结构同 ask_match。
+        """
+        trailer_text = "\n".join(
+            f"{i}. {name}" for i, name in enumerate(trailer_names)
+        )
+        movie_text = "\n".join(
+            f"{i}. {name}" for i, name in enumerate(movie_names)
+        )
+
+        prompt = f"""你是电影资料匹配助手。
+下面有 {len(trailer_names)} 个预告片文件名和 {len(movie_names)} 个正片文件夹名。
+请为每个预告片从正片列表中找到最佳匹配。
+
+要求:
+- 忽略文件名中的年份、清晰度、编码、网站水印、trailer/teaser/sample 等噪声词后再比较。
+- 如果某个预告片与任何正片都不匹配，movie 输出 null。
+- matches 必须包含所有预告片编号，一个都不能少。
+- 只输出一个 JSON 对象，不要输出其它内容。
+
+预告片列表:
+{trailer_text}
+
+正片列表:
+{movie_text}
+
+输出格式(严格 JSON):
+{{"matches": [{{"index": 预告片编号, "movie": "正片完整名称或null", "confidence": 0到100的整数, "reason": "简短理由"}}, ...]}}"""
+
+        content = self._complete(prompt)
+        data = _extract_json(content)
+        matches = data.get("matches")
+        if not isinstance(matches, list):
+            raise ValueError(f"批量匹配返回格式错误: {content[:200]}")
+
+        result_map = {}
+        for item in matches:
+            if not isinstance(item, dict):
+                continue
+            try:
+                idx = int(item.get("index"))
+            except (TypeError, ValueError):
+                continue
+            result_map[idx] = item
+
+        results = []
+        for i in range(len(trailer_names)):
+            item = result_map.get(i, {})
+            movie = item.get("movie")
+            if movie in (None, "", "null"):
+                movie = None
+            confidence = item.get("confidence", 0)
+            if isinstance(confidence, (int, float)):
+                confidence = max(0, min(100, int(confidence)))
+            else:
+                confidence = 0
+            results.append({
+                "movie": movie,
+                "confidence": confidence,
+                "reason": str(item.get("reason", "")),
+            })
+        return results

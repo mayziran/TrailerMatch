@@ -59,10 +59,26 @@ def run_match(
     progress_cb=None,
     cancel_event=None,
 ) -> list:
-    """对每个预告片执行匹配，返回 MatchResult 列表。
+    """根据 config.match_mode 分发匹配逻辑。
+
+    batch:      一次 API 调用匹配全部预告片。
+    candidate:  每个预告片本地筛候选后单独调用。
 
     progress_cb(index, total) 用于更新进度；cancel_event 可用于取消。
     """
+    if config.match_mode == "candidate":
+        return _run_candidate(trailers, movies, config, progress_cb, cancel_event)
+    return _run_batch(trailers, movies, config, progress_cb, cancel_event)
+
+
+def _run_candidate(
+    trailers: list,
+    movies: list,
+    config: Config,
+    progress_cb=None,
+    cancel_event=None,
+) -> list:
+    """逐条候选模式: 每预告片 rapidfuzz 筛选 top-N 候选后调用 AI 确认。"""
     client = AIClient(config)
     total = len(trailers)
     results: list = []
@@ -118,6 +134,77 @@ def run_match(
         if progress_cb is not None:
             progress_cb(i + 1, total)
 
+    _mark_conflicts(results)
+    return results
+
+
+def _run_batch(
+    trailers: list,
+    movies: list,
+    config: Config,
+    progress_cb=None,
+    cancel_event=None,
+) -> list:
+    """批量模式: 所有预告片+正片名一次调用，一次返回全部匹配。"""
+    if cancel_event is not None and cancel_event.is_set():
+        return []
+    if progress_cb is not None:
+        progress_cb(0, 1)
+
+    if not movies:
+        return [MatchResult(trailer=t) for t in trailers]
+    if not trailers:
+        return []
+
+    client = AIClient(config)
+    movie_by_name = {m.name: m for m in movies}
+
+    for attempt in (1, 2):  # 失败自动重试一次
+        if cancel_event is not None and cancel_event.is_set():
+            break
+        try:
+            answers = client.ask_batch(
+                [t.name for t in trailers], [m.name for m in movies]
+            )
+            break
+        except Exception as exc:
+            if attempt == 2:
+                results = [
+                    MatchResult(trailer=t, reason=f"批量调用失败: {exc}")
+                    for t in trailers
+                ]
+                _mark_conflicts(results)
+                return results
+
+    results: list = []
+    for trailer, answer in zip(trailers, answers):
+        movie = None
+        if answer["movie"]:
+            movie = movie_by_name.get(answer["movie"])
+        if movie is None:
+            results.append(MatchResult(trailer=trailer, reason=answer["reason"]))
+        elif answer["confidence"] >= config.min_confidence:
+            results.append(
+                MatchResult(
+                    trailer=trailer,
+                    movie=movie,
+                    confidence=answer["confidence"],
+                    reason=answer["reason"],
+                    status="matched",
+                )
+            )
+        else:
+            results.append(
+                MatchResult(
+                    trailer=trailer,
+                    movie=movie,
+                    confidence=answer["confidence"],
+                    reason=f"置信度过低: {answer['reason']}",
+                )
+            )
+
+    if progress_cb is not None:
+        progress_cb(1, 1)
     _mark_conflicts(results)
     return results
 

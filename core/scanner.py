@@ -56,7 +56,7 @@ def scan_trailers(trailer_dir: Path, regexes: list) -> list:
         except re.error:
             continue
     result = []
-    for path in trailer_dir.iterdir():
+    for path in trailer_dir.rglob("*"):
         if not is_video(path):
             continue
         if compiled and not any(rx.search(path.name) for rx in compiled):

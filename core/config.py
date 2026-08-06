@@ -38,7 +38,7 @@ class Config:
     movie_dir: str = ""
     trailer_regexes: list = field(default_factory=list)
     min_confidence: int = 60
-    check_candidates: bool = True
+    match_mode: str = "batch"   # batch=批量一次调用 / candidate=逐条候选匹配
     max_candidates: int = 8
 
     def save(self, path: Path = DEFAULT_CONFIG_FILE) -> None:

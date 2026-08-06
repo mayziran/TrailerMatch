@@ -1,8 +1,10 @@
+import json
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from core.ai_client import _extract_json
+from core.config import Config
 from core.matcher import MatchResult, _mark_conflicts
 from core.operations import move_trailer
 from core.scanner import Movie, TrailerFile
@@ -55,8 +57,25 @@ def test_conflict_marking():
     print("conflict_marking ok")
 
 
+def test_old_config_compat():
+    with TemporaryDirectory() as td:
+        p = Path(td) / "config.json"
+        p.write_text(
+            json.dumps(
+                {"api_base_url": "http://x", "check_candidates": True, "max_candidates": 5}
+            ),
+            encoding="utf-8",
+        )
+        c = Config.load(p)
+        assert c.match_mode == "batch", "旧配置无 match_mode 应回退默认 batch"
+        assert c.max_candidates == 5
+        assert c.api_base_url == "http://x"
+    print("old config compat ok")
+
+
 if __name__ == "__main__":
     test_extract_json()
     test_move_and_rename()
     test_conflict_marking()
+    test_old_config_compat()
     print("ALL TESTS OK")
