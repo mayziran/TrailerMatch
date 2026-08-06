@@ -107,6 +107,10 @@ class MainWindow(QMainWindow):
 
         # 结果表格
         self.table = MatchTable()
+        self.table.set_column_widths(self.config.table_col_widths)
+        self.table.horizontalHeader().sectionResized.connect(
+            self._schedule_layout_save
+        )
 
         # 日志
         log_box = QGroupBox("操作日志")
@@ -144,6 +148,7 @@ class MainWindow(QMainWindow):
             self._splitter_trailer
         )
         self.config.window_geometry = self._widget_state(self)
+        self.config.table_col_widths = self.table.column_widths()
         self.config.save()
 
     @staticmethod

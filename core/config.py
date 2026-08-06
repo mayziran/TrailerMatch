@@ -48,6 +48,7 @@ class Config:
     splitter_v_state: str = ""           # 主纵向分栏位置（base64）
     splitter_trailer_state: str = ""     # 预告片面板内部分栏位置（base64）
     window_geometry: str = ""            # 主窗口位置/大小（base64）
+    table_col_widths: list = field(default_factory=list)  # 结果表各列宽
 
     def save(self, path: Path = DEFAULT_CONFIG_FILE) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

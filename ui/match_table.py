@@ -30,15 +30,30 @@ class MatchTable(QTableWidget):
         self.setHorizontalHeaderLabels(
             ["确认", "预告片文件", "匹配正片", "置信度", "状态", "理由"]
         )
-        self.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.horizontalHeader().setSectionResizeMode(5, QHeaderView.Stretch)
+        header = self.horizontalHeader()
+        header.setStretchLastSection(True)  # 末列吃掉多余空间，仍可手动拖宽
+        for col in range(6):
+            header.setSectionResizeMode(col, QHeaderView.Interactive)
+        for col, width in enumerate((50, 260, 200, 70, 70, 220)):
+            header.resizeSection(col, width)
         self.setAlternatingRowColors(True)
         self.verticalHeader().setVisible(False)
         self.setSelectionBehavior(QTableWidget.SelectRows)
+
+    def set_column_widths(self, widths: list) -> None:
+        """恢复保存的列宽（用户拖动后跨启动记忆）。"""
+        if not widths:
+            return
+        header = self.horizontalHeader()
+        for i, width in enumerate(widths[: self.columnCount()]):
+            if width > 0:
+                header.resizeSection(i, int(width))
+
+    def column_widths(self) -> list:
+        return [
+            self.horizontalHeader().sectionSize(i)
+            for i in range(self.columnCount())
+        ]
 
     def set_movie_names(self, names: list) -> None:
         self._movie_names = sorted(names)
