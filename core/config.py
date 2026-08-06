@@ -36,12 +36,13 @@ class Config:
     api_key: str = ""
     model: str = "gpt-4o-mini"
     temperature: float = 0.0
-    trailer_dir: str = ""
+    trailer_dirs: list = field(default_factory=list)  # 预告片目录（支持多个）
     movie_dir: str = ""
     trailer_regexes: list = field(default_factory=list)
     min_confidence: int = 60
     match_mode: str = "batch"   # batch=批量一次调用 / candidate=逐条候选匹配
     max_candidates: int = 8
+    last_trailer_parent: str = ""  # 上次选择预告片目录的父目录（选择器打开位置）
 
     def save(self, path: Path = DEFAULT_CONFIG_FILE) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

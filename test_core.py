@@ -7,7 +7,7 @@ from core.ai_client import _extract_json
 from core.config import Config
 from core.matcher import MatchResult, _mark_conflicts
 from core.operations import move_trailer
-from core.scanner import Movie, TrailerFile, scan_movies
+from core.scanner import Movie, TrailerFile, scan_movies, scan_trailer_dirs
 
 
 def test_extract_json():
@@ -73,6 +73,26 @@ def test_old_config_compat():
     print("old config compat ok")
 
 
+def test_scan_multiple_dirs():
+    """多预告片目录应聚合扫描并按路径去重。"""
+    with TemporaryDirectory() as td:
+        root = Path(td)
+        a = root / "a"
+        b = root / "b"
+        a.mkdir()
+        b.mkdir()
+        (a / "x.mp4").write_bytes(b"1")
+        (b / "y.mkv").write_bytes(b"2")
+        nested = b / "sub"
+        nested.mkdir()
+        (nested / "z.mp4").write_bytes(b"3")
+        # 同一文件出现两次（通过重复目录）应去重
+        trailers = scan_trailer_dirs([str(a), str(b), str(b)], [r"\.(mp4|mkv)$"])
+        names = sorted(t.name for t in trailers)
+        assert names == ["x.mp4", "y.mkv", "z.mp4"], names
+    print("scan_multiple_dirs ok")
+
+
 def test_movie_name_from_file():
     """电影名应以文件夹内主视频文件名为准，且排除已重命名的预告片。"""
     with TemporaryDirectory() as td:
@@ -122,6 +142,7 @@ if __name__ == "__main__":
     test_move_and_rename()
     test_conflict_marking()
     test_old_config_compat()
+    test_scan_multiple_dirs()
     test_movie_name_from_file()
     test_file_based_rename()
     print("ALL TESTS OK")

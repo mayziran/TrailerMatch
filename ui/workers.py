@@ -5,19 +5,19 @@ from PySide6.QtCore import QThread, Signal
 
 from core.config import Config
 from core.matcher import run_match
-from core.scanner import scan_movies, scan_trailers
+from core.scanner import scan_movies, scan_trailer_dirs
 
 
 class ScanTrailersWorker(QThread):
     done = Signal(list)
 
-    def __init__(self, path: str, regexes: list, parent=None):
+    def __init__(self, dirs: list, regexes: list, parent=None):
         super().__init__(parent)
-        self.path = path
+        self.dirs = dirs
         self.regexes = regexes
 
     def run(self):
-        self.done.emit(scan_trailers(self.path, self.regexes))
+        self.done.emit(scan_trailer_dirs(self.dirs, self.regexes))
 
 
 class ScanMoviesWorker(QThread):

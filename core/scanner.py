@@ -82,6 +82,20 @@ def scan_trailers(trailer_dir: Path, regexes: list) -> list:
     return result
 
 
+def scan_trailer_dirs(trailer_dirs: list, regexes: list) -> list:
+    """聚合扫描多个预告片目录，按文件路径去重。"""
+    seen = set()
+    result = []
+    for d in trailer_dirs:
+        for t in scan_trailers(d, regexes):
+            key = str(t.path).lower()
+            if key not in seen:
+                seen.add(key)
+                result.append(t)
+    result.sort(key=lambda t: t.name.lower())
+    return result
+
+
 def scan_movies(movie_dir: Path) -> list:
     """递归扫描正片目录，返回按「电影子文件夹」组织的 Movie 列表。"""
     movie_dir = Path(movie_dir)
