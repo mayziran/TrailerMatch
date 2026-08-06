@@ -534,7 +534,6 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("匹配完成")
 
     def clear_results(self) -> None:
-        self.table.setRowCount(0)
         self.table.set_results([])
 
     def _on_op_mode_changed(self) -> None:

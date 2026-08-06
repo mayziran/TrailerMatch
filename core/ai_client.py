@@ -121,6 +121,8 @@ class AIClient:
 
         content = self._complete(prompt)
         data = _extract_json(content)
+        if not isinstance(data, dict):
+            raise ValueError(f"模型输出不是 JSON 对象: {content[:200]}")
         movie = data.get("movie")
         if movie in (None, "", "null"):
             movie = None
@@ -168,6 +170,8 @@ class AIClient:
 
         content = self._complete(prompt)
         data = _extract_json(content)
+        if not isinstance(data, dict):
+            raise ValueError(f"模型输出不是 JSON 对象: {content[:200]}")
         matches = data.get("matches")
         if not isinstance(matches, list):
             raise ValueError(f"批量匹配返回格式错误: {content[:200]}")

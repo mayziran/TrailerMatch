@@ -4,7 +4,6 @@
 避免把 API Key 提交到 git 仓库。
 """
 import json
-import os
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 

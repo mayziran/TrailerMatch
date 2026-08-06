@@ -3,7 +3,7 @@
 流程: 归一化名称 -> rapidfuzz 本地预筛选候选 -> AI 从候选中确认 -> 冲突标记。
 """
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 from rapidfuzz import fuzz, process

@@ -23,7 +23,15 @@ def _pick_main_file(videos: list) -> Path:
     candidates = [v for v in videos if not TRAILER_RE.search(v.stem)]
     if not candidates:
         candidates = videos
-    return max(candidates, key=lambda v: v.stat().st_size if v.exists() else 0)
+    return max(candidates, key=_safe_size)
+
+
+def _safe_size(path: Path) -> int:
+    """读取文件大小，出错（占用/权限）时按 0 处理，避免扫描崩溃。"""
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
 
 
 @dataclass
