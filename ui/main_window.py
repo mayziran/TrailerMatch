@@ -8,7 +8,8 @@ from PySide6.QtWidgets import (
     QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
-from core.config import Config
+from core.config import APP_NAME, Config
+from core.version import get_version
 from core.operations import move_trailer, trailer_dest_path
 from .match_table import MatchTable
 from .settings_dlg import SettingsDialog
@@ -18,7 +19,7 @@ from .workers import MatchWorker, ScanMoviesWorker, ScanTrailersWorker
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("TrailerMatch - 预告片自动匹配")
+        self.setWindowTitle(f"{APP_NAME} v{get_version()} - 预告片自动匹配")
         self.resize(1080, 760)
 
         self.config = Config.load()

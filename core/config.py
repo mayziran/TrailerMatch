@@ -8,6 +8,8 @@ import os
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
+APP_NAME = "TrailerMatch"
+
 DEFAULT_CONFIG_DIR = Path.home() / ".trailermatch"
 DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "config.json"
 

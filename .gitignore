@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 venv/
 config.json
+core/_version.py
 .DS_Store
 Thumbs.db
 .idea/
