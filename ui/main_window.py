@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, Qt, QTimer
+from PySide6.QtCore import QByteArray, QSize, Qt, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QComboBox, QFileDialog, QGroupBox,
@@ -18,6 +18,13 @@ from .match_table import MatchTable
 from .native_picker import last_error, pick_native_folder, pick_native_folders
 from .settings_dlg import SettingsDialog
 from .workers import MatchWorker, ScanMoviesWorker, ScanTrailersWorker
+
+
+class _ShrinkList(QListWidget):
+    """允许压缩到很小高度，用于不常修改的设置列表（如目录/筛选正则）。"""
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(super().minimumSizeHint().width(), 30)
 
 
 class MainWindow(QMainWindow):
@@ -185,7 +192,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(dir_row)
 
         # 目录列表（可单独拖拽调节高度）
-        self.trailer_dirs = QListWidget()
+        self.trailer_dirs = _ShrinkList()
         for d in self.config.trailer_dirs:
             if d:
                 self.trailer_dirs.addItem(d)
@@ -208,7 +215,7 @@ class MainWindow(QMainWindow):
         regex_row.addWidget(btn_add)
         regex_row.addWidget(btn_del)
         regex_layout.addLayout(regex_row)
-        self.regex_list = QListWidget()
+        self.regex_list = _ShrinkList()
         for r in self.config.trailer_regexes:
             self.regex_list.addItem(r)
         regex_layout.addWidget(self.regex_list)
