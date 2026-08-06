@@ -2,7 +2,8 @@
 import os
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QByteArray, Qt, QTimer
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QFileDialog, QGroupBox, QHBoxLayout,
     QLabel, QLineEdit, QListView, QListWidget, QMainWindow, QMessageBox,
@@ -34,7 +35,14 @@ class MainWindow(QMainWindow):
         self._trailer_scan_seq = 0
         self._movie_scan_seq = 0
 
+        # 布局变化后延迟保存（分栏、窗口位置/大小），防拖拽过程中频繁写配置
+        self._layout_save_timer = QTimer(self)
+        self._layout_save_timer.setSingleShot(True)
+        self._layout_save_timer.setInterval(500)
+        self._layout_save_timer.timeout.connect(self._save_layout)
+
         self._build_ui()
+        self._restore_layout()
         self._restore_paths()
 
     # ---------- UI ----------
@@ -42,11 +50,18 @@ class MainWindow(QMainWindow):
         central = QWidget()
         root = QVBoxLayout(central)
 
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.addWidget(self._build_trailer_panel())
-        splitter.addWidget(self._build_movie_panel())
-        splitter.setSizes([420, 420])
-        root.addWidget(splitter, 0)
+        # 顶部：预告片面板 + 正片面板，可左右拖拽调节宽度
+        self._splitter_h = QSplitter(Qt.Horizontal)
+        self._splitter_h.addWidget(self._build_trailer_panel())
+        self._splitter_h.addWidget(self._build_movie_panel())
+        self._splitter_h.setSizes([420, 420])
+        self._setup_splitter(self._splitter_h, self.config.splitter_h_state)
+
+        # 顶部区域整体：扫描面板 + 操作按钮 + 进度
+        top_section = QWidget()
+        top_layout = QVBoxLayout(top_section)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.addWidget(self._splitter_h, 1)
 
         # 操作按钮
         btn_row = QHBoxLayout()
@@ -67,28 +82,81 @@ class MainWindow(QMainWindow):
         btn_row.addStretch(1)
         btn_row.addWidget(self.btn_settings)
         btn_row.addWidget(self.btn_execute)
-        root.addLayout(btn_row)
+        top_layout.addLayout(btn_row)
 
         # 进度
         self.progress = QProgressBar()
         self.progress.setVisible(False)
-        root.addWidget(self.progress)
+        top_layout.addWidget(self.progress)
 
         # 结果表格
         self.table = MatchTable()
-        root.addWidget(self.table, 1)
 
         # 日志
         log_box = QGroupBox("操作日志")
         log_layout = QVBoxLayout(log_box)
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
-        self.log_view.setMaximumHeight(140)
         log_layout.addWidget(self.log_view)
-        root.addWidget(log_box)
+
+        # 主纵向分栏：顶部区域 / 结果表格 / 日志，均可拖拽调节高度
+        self._splitter_v = QSplitter(Qt.Vertical)
+        self._splitter_v.setChildrenCollapsible(False)
+        self._splitter_v.addWidget(top_section)
+        self._splitter_v.addWidget(self.table)
+        self._splitter_v.addWidget(log_box)
+        self._splitter_v.setSizes([420, 240, 130])
+        self._setup_splitter(self._splitter_v, self.config.splitter_v_state)
+        root.addWidget(self._splitter_v, 1)
 
         self.setCentralWidget(central)
         self.statusBar().showMessage("就绪")
+
+    def _setup_splitter(self, splitter: QSplitter, state: str) -> None:
+        """恢复分栏位置，并在拖动后自动保存。"""
+        if state:
+            splitter.restoreState(QByteArray.fromBase64(state.encode("ascii")))
+        splitter.splitterMoved.connect(self._schedule_layout_save)
+
+    def _schedule_layout_save(self, *_args) -> None:
+        self._layout_save_timer.start()
+
+    def _save_layout(self) -> None:
+        self.config.splitter_h_state = self._splitter_state(self._splitter_h)
+        self.config.splitter_v_state = self._splitter_state(self._splitter_v)
+        self.config.splitter_trailer_state = self._splitter_state(
+            self._splitter_trailer
+        )
+        self.config.window_geometry = self._widget_state(self)
+        self.config.save()
+
+    @staticmethod
+    def _splitter_state(splitter: QSplitter) -> str:
+        return bytes(splitter.saveState().toBase64()).decode("ascii")
+
+    @staticmethod
+    def _widget_state(widget: QWidget) -> str:
+        return bytes(widget.saveGeometry().toBase64()).decode("ascii")
+
+    def _restore_layout(self) -> None:
+        """恢复窗口位置/大小；若窗口落在屏幕外（如换了显示器）则回退默认。"""
+        if not self.config.window_geometry:
+            return
+        geo = QByteArray.fromBase64(self.config.window_geometry.encode("ascii"))
+        self.restoreGeometry(geo)
+        screens = QGuiApplication.screens()
+        rect = self.frameGeometry()
+        if not any(rect.intersects(s.availableGeometry()) for s in screens):
+            # 窗口落在所有屏幕外（如显示器被拔掉），重置到屏内默认位置
+            self.setGeometry(100, 100, 1080, 760)
+
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        self._schedule_layout_save()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._schedule_layout_save()
 
     def _build_trailer_panel(self) -> QGroupBox:
         box = QGroupBox("预告片目录")
@@ -107,13 +175,19 @@ class MainWindow(QMainWindow):
         dir_row.addStretch(1)
         layout.addLayout(dir_row)
 
+        # 目录列表（可单独拖拽调节高度）
         self.trailer_dirs = QListWidget()
         for d in self.config.trailer_dirs:
             if d:
                 self.trailer_dirs.addItem(d)
-        layout.addWidget(self.trailer_dirs)
 
-        layout.addWidget(QLabel("筛选正则（命中任意一条视为预告片，可留空=全部视频）:"))
+        # 正则区域：标签 + 输入行 + 正则列表
+        regex_block = QWidget()
+        regex_layout = QVBoxLayout(regex_block)
+        regex_layout.setContentsMargins(0, 0, 0, 0)
+        regex_label = QLabel("筛选正则（命中任意一条视为预告片，可留空=全部视频）:")
+        regex_label.setWordWrap(True)
+        regex_layout.addWidget(regex_label)
         regex_row = QHBoxLayout()
         self.regex_input = QLineEdit()
         self.regex_input.setPlaceholderText(r"如 sample\.mp4$")
@@ -124,13 +198,16 @@ class MainWindow(QMainWindow):
         regex_row.addWidget(self.regex_input, 1)
         regex_row.addWidget(btn_add)
         regex_row.addWidget(btn_del)
-        layout.addLayout(regex_row)
-
+        regex_layout.addLayout(regex_row)
         self.regex_list = QListWidget()
         for r in self.config.trailer_regexes:
             self.regex_list.addItem(r)
-        layout.addWidget(self.regex_list)
+        regex_layout.addWidget(self.regex_list)
 
+        # 扫描区：按钮 + 计数 + 预告片列表
+        list_block = QWidget()
+        list_layout = QVBoxLayout(list_block)
+        list_layout.setContentsMargins(0, 0, 0, 0)
         scan_row = QHBoxLayout()
         self.btn_scan_trailers = QPushButton("扫描预告片")
         self.btn_scan_trailers.clicked.connect(self.scan_trailers)
@@ -138,10 +215,21 @@ class MainWindow(QMainWindow):
         scan_row.addWidget(self.btn_scan_trailers)
         scan_row.addStretch(1)
         scan_row.addWidget(self.trailer_count)
-        layout.addLayout(scan_row)
-
+        list_layout.addLayout(scan_row)
         self.trailer_list = QListWidget()
-        layout.addWidget(self.trailer_list)
+        list_layout.addWidget(self.trailer_list)
+
+        # 面板内部纵向分栏：目录列表 / 正则区 / 预告片列表，均可拖拽
+        self._splitter_trailer = QSplitter(Qt.Vertical)
+        self._splitter_trailer.setChildrenCollapsible(False)
+        self._splitter_trailer.addWidget(self.trailer_dirs)
+        self._splitter_trailer.addWidget(regex_block)
+        self._splitter_trailer.addWidget(list_block)
+        self._splitter_trailer.setSizes([140, 150, 200])
+        self._setup_splitter(
+            self._splitter_trailer, self.config.splitter_trailer_state
+        )
+        layout.addWidget(self._splitter_trailer, 1)
         return box
 
     def _build_movie_panel(self) -> QGroupBox:
@@ -491,5 +579,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         if self._match_worker is not None and self._match_worker.isRunning():
             self._match_worker.cancel()
+        self._save_layout()
         self.config.save()
         super().closeEvent(event)

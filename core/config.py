@@ -43,6 +43,10 @@ class Config:
     match_mode: str = "batch"   # batch=批量一次调用 / candidate=逐条候选匹配
     max_candidates: int = 8
     last_trailer_parent: str = ""  # 上次选择预告片目录的父目录（选择器打开位置）
+    splitter_h_state: str = ""           # 左右分栏位置（base64，跨启动记忆）
+    splitter_v_state: str = ""           # 主纵向分栏位置（base64）
+    splitter_trailer_state: str = ""     # 预告片面板内部分栏位置（base64）
+    window_geometry: str = ""            # 主窗口位置/大小（base64）
 
     def save(self, path: Path = DEFAULT_CONFIG_FILE) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
