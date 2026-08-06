@@ -7,7 +7,7 @@ from core.ai_client import _extract_json
 from core.config import Config
 from core.matcher import MatchResult, _mark_conflicts
 from core.operations import move_trailer
-from core.scanner import Movie, TrailerFile
+from core.scanner import Movie, TrailerFile, scan_movies
 
 
 def test_extract_json():
@@ -73,9 +73,55 @@ def test_old_config_compat():
     print("old config compat ok")
 
 
+def test_movie_name_from_file():
+    """电影名应以文件夹内主视频文件名为准，且排除已重命名的预告片。"""
+    with TemporaryDirectory() as td:
+        root = Path(td)
+        mdir = root / "movies"
+        mdir.mkdir()
+        movie_dir = mdir / "随便一个文件夹名"
+        movie_dir.mkdir()
+        movie_file = movie_dir / "Home.Alone.1990.mkv"
+        movie_file.write_bytes(b"xxxxxx")  # 体积更大，应被选为主正片
+        (movie_dir / "Home.Alone.1990-trailer.mp4").write_bytes(b"x")  # 已命名预告片应被排除
+
+        movies = scan_movies(mdir)
+        assert len(movies) == 1
+        m = movies[0]
+        assert m.main_file == movie_file
+        assert m.name == "Home.Alone.1990", m.name
+        assert m.name != "随便一个文件夹名"
+    print("movie_name_from_file ok")
+
+
+def test_file_based_rename():
+    """重命名应以主视频文件名(去扩展名)为基准，而非文件夹名。"""
+    with TemporaryDirectory() as td:
+        root = Path(td)
+        tdir = root / "trailers"
+        mdir = root / "movies"
+        tdir.mkdir()
+        mdir.mkdir()
+        src = tdir / "Home.Alone.trailer.mp4"
+        src.write_bytes(b"data")
+        movie_dir = mdir / "文件夹名与文件名不同"
+        movie_dir.mkdir()
+        (movie_dir / "Home.Alone.1990.mkv").write_bytes(b"xxxxxx")
+
+        movies = scan_movies(mdir)
+        assert movies and movies[0].name == "Home.Alone.1990"
+        res = move_trailer(TrailerFile(src), movies[0])
+        assert res.ok, res.message
+        assert (movie_dir / "Home.Alone.1990-trailer.mp4").exists(), res.dst
+        assert not (movie_dir / "文件夹名与文件名不同-trailer.mp4").exists()
+    print("file_based_rename ok")
+
+
 if __name__ == "__main__":
     test_extract_json()
     test_move_and_rename()
     test_conflict_marking()
     test_old_config_compat()
+    test_movie_name_from_file()
+    test_file_based_rename()
     print("ALL TESTS OK")

@@ -39,7 +39,7 @@ def main():
         print("trailers ok:", [t.name for t in trailers])
 
         movies = scan_movies(mdir)
-        assert [m.name for m in movies] == ["Home Alone (1990)"]
+        assert [m.name for m in movies] == ["Home.Alone.1990"], [m.name for m in movies]
         print("movies ok:", [m.name for m in movies])
 
     print("ALL OK")

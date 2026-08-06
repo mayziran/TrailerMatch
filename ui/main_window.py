@@ -28,6 +28,8 @@ class MainWindow(QMainWindow):
         self._movie_map = {}
         self._scan_workers = []
         self._match_worker = None
+        self._trailer_scan_seq = 0
+        self._movie_scan_seq = 0
 
         self._build_ui()
         self._restore_paths()
@@ -92,6 +94,7 @@ class MainWindow(QMainWindow):
         path_row = QHBoxLayout()
         self.trailer_path = QLineEdit(self.config.trailer_dir)
         self.trailer_path.setPlaceholderText("选择存放预告片的文件夹")
+        self.trailer_path.editingFinished.connect(self.scan_trailers)
         btn = QPushButton("浏览")
         btn.clicked.connect(lambda: self._browse(self.trailer_path))
         path_row.addWidget(self.trailer_path)
@@ -136,6 +139,7 @@ class MainWindow(QMainWindow):
         path_row = QHBoxLayout()
         self.movie_path = QLineEdit(self.config.movie_dir)
         self.movie_path.setPlaceholderText("选择存放正片(每个电影一个子文件夹)的目录")
+        self.movie_path.editingFinished.connect(self.scan_movies)
         btn = QPushButton("浏览")
         btn.clicked.connect(lambda: self._browse(self.movie_path))
         path_row.addWidget(self.movie_path)
@@ -161,6 +165,10 @@ class MainWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "选择文件夹", line_edit.text())
         if path:
             line_edit.setText(path)
+            if line_edit is self.trailer_path:
+                self.scan_trailers()
+            elif line_edit is self.movie_path:
+                self.scan_movies()
 
     # ---------- 正则规则 ----------
     def _add_regex(self) -> None:
@@ -190,12 +198,16 @@ class MainWindow(QMainWindow):
         if not path:
             return
         self.btn_scan_trailers.setEnabled(False)
+        seq = self._trailer_scan_seq + 1
+        self._trailer_scan_seq = seq
         worker = ScanTrailersWorker(path, self._regexes())
-        worker.done.connect(self._on_trailers_scanned)
+        worker.done.connect(lambda trailers, s=seq: self._on_trailers_scanned(trailers, s))
         self._scan_workers.append(worker)
         worker.start()
 
-    def _on_trailers_scanned(self, trailers) -> None:
+    def _on_trailers_scanned(self, trailers, seq) -> None:
+        if seq != self._trailer_scan_seq:
+            return  # 过期扫描结果，丢弃
         self._trailers = trailers
         self._scan_workers = [w for w in self._scan_workers if w.isRunning()]
         self.trailer_list.clear()
@@ -213,12 +225,16 @@ class MainWindow(QMainWindow):
         if not path:
             return
         self.btn_scan_movies.setEnabled(False)
+        seq = self._movie_scan_seq + 1
+        self._movie_scan_seq = seq
         worker = ScanMoviesWorker(path)
-        worker.done.connect(self._on_movies_scanned)
+        worker.done.connect(lambda movies, s=seq: self._on_movies_scanned(movies, s))
         self._scan_workers.append(worker)
         worker.start()
 
-    def _on_movies_scanned(self, movies) -> None:
+    def _on_movies_scanned(self, movies, seq) -> None:
+        if seq != self._movie_scan_seq:
+            return  # 过期扫描结果，丢弃
         self._movies = movies
         self._scan_workers = [w for w in self._scan_workers if w.isRunning()]
         self._movie_map = {m.name: m for m in movies}
