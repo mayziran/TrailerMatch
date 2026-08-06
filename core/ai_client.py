@@ -155,7 +155,14 @@ class AIClient:
 
         results = []
         for i in range(len(trailer_names)):
-            item = result_map.get(i, {})
+            item = result_map.get(i)
+            if item is None:
+                results.append({
+                    "movie": None,
+                    "confidence": 0,
+                    "reason": "AI 未返回该条匹配结果",
+                })
+                continue
             movie = item.get("movie")
             if movie in (None, "", "null"):
                 movie = None

@@ -14,6 +14,7 @@ from .scanner import Movie, TrailerFile
 
 YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\b")
 SEP_RE = re.compile(r"[._\-\[\](){}【】（）,\s]+")
+FUZZY_THRESHOLD = 88
 
 
 def normalize_name(name: str) -> str:
@@ -25,6 +26,32 @@ def normalize_name(name: str) -> str:
     return " ".join(tokens)
 
 
+def _resolve_movie(name: str, movies: list, candidates: list = None):
+    """把 AI 输出的正片名解析回 Movie 对象。
+
+    先精确匹配，失败后对归一化名称做模糊匹配，容忍空格/全角/年份等细微差异。
+    返回 None 表示无法匹配到任何正片。
+    """
+    pool = candidates if candidates is not None else movies
+    for m in pool:
+        if m.name == name:
+            return m
+    norm = normalize_name(name)
+    if not norm:
+        return None
+    pairs = [(m, n) for m in pool if (n := normalize_name(m.name))]
+    best = process.extractOne(norm, [n for _, n in pairs], scorer=fuzz.WRatio)
+    if best is None:
+        return None
+    match, score, _ = best
+    if score < FUZZY_THRESHOLD:
+        return None
+    for m, n in pairs:
+        if n == match:
+            return m
+    return None
+
+
 @dataclass
 class MatchResult:
     trailer: TrailerFile
@@ -32,7 +59,6 @@ class MatchResult:
     confidence: int = 0
     reason: str = ""
     status: str = "unmatched"      # matched / unmatched / conflict
-    editable: bool = True          # 冲突行不可直接确认
 
     @property
     def movie_name(self) -> str:
@@ -42,14 +68,11 @@ class MatchResult:
 def _pick_candidates(trailer_name: str, movies: list, max_candidates: int) -> list:
     """本地模糊筛选候选正片，减少 AI token 消耗。"""
     norm = normalize_name(trailer_name)
-    names = [(m.name, m) for m in movies]
     if not norm:
-        return [m for _, m in names[:max_candidates]]
-    choices = [n for n, _ in names]
-    best = process.extract(
-        norm, choices, scorer=fuzz.WRatio, limit=max_candidates
-    )
-    return [names[choices.index(match)][1] for match, _s, _r in best]
+        return list(movies[:max_candidates])
+    norms = [normalize_name(m.name) for m in movies]
+    best = process.extract(norm, norms, scorer=fuzz.WRatio, limit=max_candidates)
+    return [movies[i] for _s, _score, i in best]
 
 
 def run_match(
@@ -99,15 +122,7 @@ def _run_candidate(
             else:
                 movie = None
                 if answer["movie"]:
-                    movie = next(
-                        (m for m in candidates if m.name == answer["movie"]),
-                        None,
-                    )
-                    if movie is None:
-                        movie = next(
-                            (m for m in movies if m.name == answer["movie"]),
-                            None,
-                        )
+                    movie = _resolve_movie(answer["movie"], movies, candidates)
                 if movie is None:
                     results.append(
                         MatchResult(trailer=trailer, reason=answer["reason"])
@@ -157,8 +172,8 @@ def _run_batch(
         return []
 
     client = AIClient(config)
-    movie_by_name = {m.name: m for m in movies}
 
+    answers = None
     for attempt in (1, 2):  # 失败自动重试一次
         if cancel_event is not None and cancel_event.is_set():
             break
@@ -176,11 +191,16 @@ def _run_batch(
                 _mark_conflicts(results)
                 return results
 
+    if answers is None:  # 用户取消或调用被中断
+        results = [MatchResult(trailer=t, reason="已取消") for t in trailers]
+        _mark_conflicts(results)
+        return results
+
     results: list = []
     for trailer, answer in zip(trailers, answers):
         movie = None
         if answer["movie"]:
-            movie = movie_by_name.get(answer["movie"])
+            movie = _resolve_movie(answer["movie"], movies)
         if movie is None:
             results.append(MatchResult(trailer=trailer, reason=answer["reason"]))
         elif answer["confidence"] >= config.min_confidence:

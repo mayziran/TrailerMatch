@@ -16,6 +16,7 @@ STATUS_COLOR = {
     "matched": QColor("#1a7f37"),
     "unmatched": QColor("#8b949e"),
     "conflict": QColor("#cf222e"),
+    "manual": QColor("#0969da"),
 }
 
 
@@ -24,6 +25,7 @@ class MatchTable(QTableWidget):
         super().__init__(parent)
         self._results = []
         self._movie_names = []
+        self._filling = False
         self.setColumnCount(6)
         self.setHorizontalHeaderLabels(
             ["确认", "预告片文件", "匹配正片", "置信度", "状态", "理由"]
@@ -45,8 +47,10 @@ class MatchTable(QTableWidget):
         self._results = results
         self.setRowCount(0)
         self.setRowCount(len(results))
+        self._filling = True
         for row, r in enumerate(results):
             self._fill_row(row, r)
+        self._filling = False
 
     def _fill_row(self, row: int, r: MatchResult) -> None:
         # 确认勾选框
@@ -72,7 +76,7 @@ class MatchTable(QTableWidget):
         self.setCellWidget(row, 2, combo)
 
         # 置信度
-        conf_item = QTableWidgetItem(str(r.confidence) if r.status == "matched" else "-")
+        conf_item = QTableWidgetItem(str(r.confidence) if r.confidence > 0 else "-")
         conf_item.setTextAlignment(Qt.AlignCenter)
         self.setItem(row, 3, conf_item)
 
@@ -85,9 +89,24 @@ class MatchTable(QTableWidget):
         self.setItem(row, 5, QTableWidgetItem(r.reason))
 
     def _on_movie_changed(self, row: int, text: str) -> None:
+        if self._filling:
+            return
         cb = self.cellWidget(row, 0)
-        if isinstance(cb, QCheckBox) and text == "" and cb.isChecked():
+        if not isinstance(cb, QCheckBox):
+            return
+        status_item = self.item(row, 4)
+        reason_item = self.item(row, 5)
+        if text:
+            # 用户手动指定/改选正片：标记为「手动」并自动勾选
+            status_item.setText("手动")
+            status_item.setForeground(STATUS_COLOR["manual"])
+            reason_item.setText("")
+            cb.setChecked(True)
+        else:
             cb.setChecked(False)
+            status_item.setText("未匹配")
+            status_item.setForeground(STATUS_COLOR["unmatched"])
+            reason_item.setText("手动清除匹配")
 
     def checked_rows(self) -> list:
         """返回 (row, trailer, movie_name) 列表，供执行操作使用。"""

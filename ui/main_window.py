@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.config import Config
-from core.operations import move_trailer
+from core.operations import move_trailer, trailer_dest_path
 from .match_table import MatchTable
 from .settings_dlg import SettingsDialog
 from .workers import MatchWorker, ScanMoviesWorker, ScanTrailersWorker
@@ -196,6 +196,7 @@ class MainWindow(QMainWindow):
 
     def _on_trailers_scanned(self, trailers) -> None:
         self._trailers = trailers
+        self._scan_workers = [w for w in self._scan_workers if w.isRunning()]
         self.trailer_list.clear()
         for t in trailers:
             self.trailer_list.addItem(t.name)
@@ -218,6 +219,7 @@ class MainWindow(QMainWindow):
 
     def _on_movies_scanned(self, movies) -> None:
         self._movies = movies
+        self._scan_workers = [w for w in self._scan_workers if w.isRunning()]
         self._movie_map = {m.name: m for m in movies}
         self.movie_list.clear()
         for m in movies:
@@ -231,8 +233,10 @@ class MainWindow(QMainWindow):
 
     # ---------- 匹配 ----------
     def start_match(self) -> None:
+        # 清理已被移动/删除的预告片，避免用不存在的文件调 AI
+        self._trailers = [t for t in self._trailers if t.path.exists()]
         if not self._trailers:
-            self.log("请先扫描预告片")
+            self.log("请先扫描预告片（或重新扫描，当前列表没有有效文件）")
             return
         if not self._movies:
             self.log("请先扫描正片")
@@ -307,35 +311,32 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "没有需要处理的勾选项。")
             return
 
-        # 预检：目标是否已存在
-        existing = []
-        for _row, result, movie_name in rows:
-            movie = self._movie_map.get(movie_name)
-            if movie is None:
-                self.log(f"跳过：找不到正片「{movie_name}」")
-                continue
-            dst = movie.folder / f"{movie.name}-trailer{result.trailer.path.suffix}"
-            if dst.exists():
-                existing.append((result.trailer, movie))
-
-        overwrite = False
-        if existing:
-            ret = QMessageBox.question(
-                self, "目标已存在",
-                f"有 {len(existing)} 个目标文件已存在，是否覆盖？",
-                QMessageBox.Yes | QMessageBox.No,
-            )
-            overwrite = ret == QMessageBox.Yes
-
         ok = skipped = failed = 0
         for _row, result, movie_name in rows:
             movie = self._movie_map.get(movie_name)
             if movie is None:
+                failed += 1
+                self.log(f"[!!] 找不到正片「{movie_name}」，跳过 {result.trailer.name}")
                 continue
+
+            # 逐条判断是否覆盖已存在的目标
+            overwrite = False
+            dst = trailer_dest_path(movie, result.trailer.path.suffix)
+            if dst.exists():
+                ret = QMessageBox.question(
+                    self, "目标已存在",
+                    f"{dst.name} 已存在，是否覆盖？\n（选“取消”将停止剩余操作）",
+                    QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+                )
+                if ret == QMessageBox.Cancel:
+                    self.log("已取消剩余移动操作")
+                    break
+                overwrite = ret == QMessageBox.Yes
+
             res = move_trailer(result.trailer, movie, overwrite=overwrite)
             if res.ok:
                 ok += 1
-            elif "已存在" in res.message and not overwrite:
+            elif "已存在" in res.message:
                 skipped += 1
             else:
                 failed += 1
@@ -346,7 +347,9 @@ class MainWindow(QMainWindow):
             self, "完成",
             f"成功 {ok} 个，跳过 {skipped} 个，失败 {failed} 个。\n详见日志。",
         )
-        # 重新扫描，更新正片目录列表
+        # 重新扫描两侧，更新目录列表
+        if self.trailer_path.text().strip():
+            self.scan_trailers()
         if self.movie_path.text().strip():
             self.scan_movies()
 
