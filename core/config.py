@@ -42,6 +42,7 @@ class Config:
     min_confidence: int = 60
     match_mode: str = "batch"   # batch=批量一次调用 / candidate=逐条候选匹配
     max_candidates: int = 8
+    op_mode: str = "move"        # move=移动 / copy=复制 / hardlink=硬链接
     last_trailer_parent: str = ""  # 上次选择预告片目录的父目录（选择器打开位置）
     splitter_h_state: str = ""           # 左右分栏位置（base64，跨启动记忆）
     splitter_v_state: str = ""           # 主纵向分栏位置（base64）

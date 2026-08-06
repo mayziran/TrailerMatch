@@ -5,15 +5,15 @@ from pathlib import Path
 from PySide6.QtCore import QByteArray, Qt, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QFileDialog, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QListView, QListWidget, QMainWindow, QMessageBox,
-    QPlainTextEdit, QProgressBar, QPushButton, QSplitter, QTreeView,
-    QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QComboBox, QFileDialog, QGroupBox,
+    QHBoxLayout, QLabel, QLineEdit, QListView, QListWidget, QMainWindow,
+    QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSplitter,
+    QTreeView, QVBoxLayout, QWidget,
 )
 
 from core.config import APP_NAME, Config
 from core.version import get_version
-from core.operations import move_trailer, trailer_dest_path
+from core.operations import apply_trailer
 from .match_table import MatchTable
 from .native_picker import last_error, pick_native_folder, pick_native_folders
 from .settings_dlg import SettingsDialog
@@ -72,15 +72,24 @@ class MainWindow(QMainWindow):
         self.btn_stop.clicked.connect(self.stop_match)
         self.btn_clear = QPushButton("清空结果")
         self.btn_clear.clicked.connect(self.clear_results)
-        self.btn_settings = QPushButton("AI 设置")
+        self.btn_settings = QPushButton("设置")
         self.btn_settings.clicked.connect(self.open_settings)
-        self.btn_execute = QPushButton("确认并移动")
+        self.btn_execute = QPushButton("确认并处理")
         self.btn_execute.clicked.connect(self.execute_move)
+        # 处理方式：移动(默认)/复制/硬链接
+        self.op_mode = QComboBox()
+        self.op_mode.addItem("移动并重命名", "move")
+        self.op_mode.addItem("复制并重命名", "copy")
+        self.op_mode.addItem("硬链接并重命名", "hardlink")
+        idx = self.op_mode.findData(self.config.op_mode)
+        self.op_mode.setCurrentIndex(idx if idx >= 0 else 0)
+        self.op_mode.currentIndexChanged.connect(self._on_op_mode_changed)
         btn_row.addWidget(self.btn_match)
         btn_row.addWidget(self.btn_stop)
         btn_row.addWidget(self.btn_clear)
         btn_row.addStretch(1)
         btn_row.addWidget(self.btn_settings)
+        btn_row.addWidget(self.op_mode)
         btn_row.addWidget(self.btn_execute)
         top_layout.addLayout(btn_row)
 
@@ -481,6 +490,7 @@ class MainWindow(QMainWindow):
             self.progress.setRange(0, len(self._trailers))
         self.progress.setValue(0)
 
+        self.clear_results()  # 清空上一次的匹配结果
         self._match_worker = MatchWorker(self._trailers, self._movies, self.config)
         self._match_worker.progress.connect(self._on_match_progress)
         self._match_worker.done.connect(self._on_match_done)
@@ -515,6 +525,12 @@ class MainWindow(QMainWindow):
         self.table.setRowCount(0)
         self.table.set_results([])
 
+    def _on_op_mode_changed(self) -> None:
+        mode = self.op_mode.currentData()
+        if mode and mode != self.config.op_mode:
+            self.config.op_mode = mode
+            self.config.save()
+
     # ---------- 设置 ----------
     def open_settings(self) -> None:
         dlg = SettingsDialog(self.config, self)
@@ -531,6 +547,7 @@ class MainWindow(QMainWindow):
             return
 
         ok = skipped = failed = 0
+        mode = self.op_mode.currentData()
         for _row, result, movie_name in rows:
             movie = self._movie_map.get(movie_name)
             if movie is None:
@@ -538,33 +555,17 @@ class MainWindow(QMainWindow):
                 self.log(f"[!!] 找不到正片「{movie_name}」，跳过 {result.trailer.name}")
                 continue
 
-            # 逐条判断是否覆盖已存在的目标
-            overwrite = False
-            dst = trailer_dest_path(movie, result.trailer.path.suffix)
-            if dst.exists():
-                ret = QMessageBox.question(
-                    self, "目标已存在",
-                    f"{dst.name} 已存在，是否覆盖？\n（选“取消”将停止剩余操作）",
-                    QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
-                )
-                if ret == QMessageBox.Cancel:
-                    self.log("已取消剩余移动操作")
-                    break
-                overwrite = ret == QMessageBox.Yes
-
-            res = move_trailer(result.trailer, movie, overwrite=overwrite)
+            res = apply_trailer(result.trailer, movie, mode=mode)
             if res.ok:
                 ok += 1
-            elif "已存在" in res.message:
-                skipped += 1
             else:
                 failed += 1
             self.log(f"[{'OK' if res.ok else '!!'}] {res.src} -> {res.dst}  {res.message}")
 
-        self.log(f"移动完成：成功 {ok}，跳过 {skipped}，失败 {failed}")
+        self.log(f"处理完成：成功 {ok}，失败 {failed}")
         QMessageBox.information(
             self, "完成",
-            f"成功 {ok} 个，跳过 {skipped} 个，失败 {failed} 个。\n详见日志。",
+            f"成功 {ok} 个，失败 {failed} 个。\n详见日志。",
         )
         # 重新扫描两侧，更新目录列表
         if self._trailer_dirs():

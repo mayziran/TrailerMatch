@@ -176,6 +176,55 @@ def test_file_based_rename():
     print("file_based_rename ok")
 
 
+def test_op_modes():
+    """移动/复制/硬链接三种模式都应生成目标文件并重命名。"""
+    from core.operations import MODE_COPY, MODE_HARDLINK, MODE_MOVE, apply_trailer
+
+    with TemporaryDirectory() as td:
+        root = Path(td)
+        tdir = root / "trailers"
+        mdir = root / "movies"
+        tdir.mkdir()
+        mdir.mkdir()
+        movie_dir = mdir / "Movie"
+        movie_dir.mkdir()
+        (movie_dir / "Movie.2020.mkv").write_bytes(b"x")
+        movies = scan_movies(mdir)
+        assert movies and movies[0].name == "Movie.2020"
+        dest_name = f"{movies[0].name}-trailer.mp4"
+
+        src = tdir / "A.trailer.mp4"
+        src.write_bytes(b"data")
+        r = apply_trailer(TrailerFile(src), movies[0], MODE_MOVE)
+        assert r.ok and (movie_dir / dest_name).exists(), r.message
+        assert not src.exists(), "移动后源文件应消失"
+        (movie_dir / dest_name).unlink()
+
+        src = tdir / "B.trailer.mp4"
+        src.write_bytes(b"data")
+        r = apply_trailer(TrailerFile(src), movies[0], MODE_COPY)
+        assert r.ok and (movie_dir / dest_name).exists(), r.message
+        assert src.exists(), "复制后源文件应保留"
+        (movie_dir / dest_name).unlink()
+
+        src = tdir / "C.trailer.mp4"
+        src.write_bytes(b"data")
+        r = apply_trailer(TrailerFile(src), movies[0], MODE_HARDLINK)
+        assert r.ok and (movie_dir / dest_name).exists(), r.message
+        assert src.exists(), "硬链接后源文件应保留"
+
+        # 目标已存在 -> 三种模式都报错且不覆盖旧文件内容
+        (movie_dir / dest_name).write_bytes(b"old")
+        for src_name in ("D.mp4", "E.mp4", "F.mp4"):
+            s = tdir / src_name
+            s.write_bytes(b"new")
+            r = apply_trailer(TrailerFile(s), movies[0], MODE_MOVE)
+            assert not r.ok and "已存在" in r.message, r.message
+            assert s.exists(), "失败时不应改动源文件"
+        assert (movie_dir / dest_name).read_bytes() == b"old", "不应覆盖已存在文件"
+    print("op_modes ok")
+
+
 if __name__ == "__main__":
     test_extract_json()
     test_move_and_rename()
@@ -186,4 +235,5 @@ if __name__ == "__main__":
     test_trailer_dirs_group_by_dir()
     test_movie_name_from_file()
     test_file_based_rename()
+    test_op_modes()
     print("ALL TESTS OK")
