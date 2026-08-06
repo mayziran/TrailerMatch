@@ -48,6 +48,8 @@ class AIClient:
                 pass
 
     def _client(self):
+        if self._aborted:
+            raise RuntimeError("匹配已取消")
         import httpx
         from openai import OpenAI
         http = httpx.Client(timeout=120)

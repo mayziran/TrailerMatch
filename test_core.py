@@ -112,6 +112,26 @@ def test_trailer_order_folder_first():
     print("trailer_order_folder_first ok")
 
 
+def test_trailer_dirs_group_by_dir():
+    """多目录时按用户添加的目录路径分组，组内沿用文件夹→文件名顺序。"""
+    with TemporaryDirectory() as td:
+        root = Path(td)
+        da = root / "aaa"
+        db = root / "bbb"
+        (da / "Z").mkdir(parents=True)
+        (da / "A").mkdir()
+        db.mkdir()
+        (da / "Z" / "1.mp4").write_bytes(b"1")
+        (da / "A" / "2.mp4").write_bytes(b"2")
+        (db / "3.mp4").write_bytes(b"3")
+        trailers = scan_trailer_dirs([str(db), str(da)], [])
+        # aaa 目录整体在前（组内 A/2, Z/1），bbb 目录在后
+        assert [t.name for t in trailers] == ["2.mp4", "1.mp4", "3.mp4"], [
+            t.name for t in trailers
+        ]
+    print("trailer_dirs_group_by_dir ok")
+
+
 def test_movie_name_from_file():
     """电影名应以文件夹内主视频文件名为准，且排除已重命名的预告片。"""
     with TemporaryDirectory() as td:
@@ -163,6 +183,7 @@ if __name__ == "__main__":
     test_old_config_compat()
     test_scan_multiple_dirs()
     test_trailer_order_folder_first()
+    test_trailer_dirs_group_by_dir()
     test_movie_name_from_file()
     test_file_based_rename()
     print("ALL TESTS OK")

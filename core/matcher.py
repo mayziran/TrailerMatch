@@ -107,8 +107,6 @@ def _run_candidate(
     client=None,
 ) -> list:
     """逐条候选模式: 每预告片 rapidfuzz 筛选 top-N 候选后调用 AI 确认。"""
-    if client is None:
-        client = AIClient(config)
     total = len(trailers)
     results: list = []
 
@@ -181,9 +179,6 @@ def _run_batch(
         return [MatchResult(trailer=t) for t in trailers]
     if not trailers:
         return []
-
-    if client is None:
-        client = AIClient(config)
 
     answers = None
     for attempt in (1, 2):  # 失败自动重试一次
