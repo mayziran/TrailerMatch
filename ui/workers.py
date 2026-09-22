@@ -6,7 +6,7 @@ from PySide6.QtCore import QThread, Signal
 from core.ai_client import AIClient
 from core.config import Config
 from core.matcher import run_match
-from core.scanner import scan_movies, scan_trailer_dirs
+from core.scanner import scan_movie_dirs, scan_trailer_dirs
 
 
 class ScanTrailersWorker(QThread):
@@ -24,12 +24,12 @@ class ScanTrailersWorker(QThread):
 class ScanMoviesWorker(QThread):
     done = Signal(list)
 
-    def __init__(self, path: str, parent=None):
+    def __init__(self, dirs: list, parent=None):
         super().__init__(parent)
-        self.path = path
+        self.dirs = dirs
 
     def run(self):
-        self.done.emit(scan_movies(self.path))
+        self.done.emit(scan_movie_dirs(self.dirs))
 
 
 class MatchWorker(QThread):

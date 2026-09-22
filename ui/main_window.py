@@ -1,6 +1,5 @@
 """主窗口。"""
 import os
-from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QSize, Qt, QTimer
 from PySide6.QtGui import QGuiApplication
@@ -15,7 +14,7 @@ from core.config import APP_NAME, Config
 from core.version import get_version
 from core.operations import apply_trailer
 from .match_table import MatchTable
-from .native_picker import last_error, pick_native_folder, pick_native_folders
+from .native_picker import _CLIENT_GUID_MOVIE, last_error, pick_native_folders
 from .settings_dlg import SettingsDialog
 from .workers import MatchWorker, ScanMoviesWorker, ScanTrailersWorker
 
@@ -148,6 +147,9 @@ class MainWindow(QMainWindow):
         self.config.splitter_trailer_state = self._splitter_state(
             self._splitter_trailer
         )
+        self.config.splitter_movie_state = self._splitter_state(
+            self._splitter_movie
+        )
         self.config.window_geometry = self._widget_state(self)
         self.config.table_col_widths = self.table.column_widths()
         self.config.save()
@@ -266,18 +268,36 @@ class MainWindow(QMainWindow):
         box = QGroupBox("正片目录")
         layout = QVBoxLayout(box)
 
-        path_row = QHBoxLayout()
-        self.movie_path = QLineEdit(self.config.movie_dir)
-        self.movie_path.setPlaceholderText("选择存放正片(每个电影一个子文件夹)的目录")
-        self.movie_path.editingFinished.connect(self.scan_movies)
-        btn = QPushButton("浏览")
-        btn.clicked.connect(self._browse_movie)
-        path_row.addWidget(self.movie_path)
-        path_row.addWidget(btn)
-        layout.addLayout(path_row)
+        layout.addWidget(QLabel("正片目录（支持多个，每个目录下的子文件夹视为一部电影）:"))
 
-        layout.addWidget(QLabel("正片结构：目录下的每个子文件夹视为一部电影"))
+        # 目录管理按钮
+        dir_row = QHBoxLayout()
+        self.btn_add_movie_dir = QPushButton("添加目录")
+        self.btn_add_movie_dir.clicked.connect(self._add_movie_dir)
+        self.btn_del_movie_dir = QPushButton("删除选中")
+        self.btn_del_movie_dir.clicked.connect(self._del_movie_dir)
+        self.btn_clear_movie_dir = QPushButton("清空")
+        self.btn_clear_movie_dir.clicked.connect(self._clear_movie_dirs)
+        dir_row.addWidget(self.btn_add_movie_dir)
+        dir_row.addWidget(self.btn_del_movie_dir)
+        dir_row.addWidget(self.btn_clear_movie_dir)
+        dir_row.addStretch(1)
 
+        # 目录区（按钮 + 目录列表）
+        dir_block = QWidget()
+        dir_layout = QVBoxLayout(dir_block)
+        dir_layout.setContentsMargins(0, 0, 0, 0)
+        dir_layout.addLayout(dir_row)
+        self.movie_dirs = _ShrinkList()
+        for d in self.config.movie_dirs:
+            if d:
+                self.movie_dirs.addItem(d)
+        dir_layout.addWidget(self.movie_dirs)
+
+        # 扫描区：按钮 + 计数 + 电影列表
+        list_block = QWidget()
+        list_layout = QVBoxLayout(list_block)
+        list_layout.setContentsMargins(0, 0, 0, 0)
         scan_row = QHBoxLayout()
         self.btn_scan_movies = QPushButton("扫描正片")
         self.btn_scan_movies.clicked.connect(self.scan_movies)
@@ -285,33 +305,107 @@ class MainWindow(QMainWindow):
         scan_row.addWidget(self.btn_scan_movies)
         scan_row.addStretch(1)
         scan_row.addWidget(self.movie_count)
-        layout.addLayout(scan_row)
-
+        list_layout.addLayout(scan_row)
         self.movie_list = QListWidget()
-        layout.addWidget(self.movie_list)
+        list_layout.addWidget(self.movie_list)
+
+        # 面板内部纵向分栏：目录区 / 电影列表，均可拖拽
+        self._splitter_movie = QSplitter(Qt.Vertical)
+        self._splitter_movie.setChildrenCollapsible(False)
+        self._splitter_movie.addWidget(dir_block)
+        self._splitter_movie.addWidget(list_block)
+        self._splitter_movie.setSizes([140, 300])
+        self._setup_splitter(
+            self._splitter_movie, self.config.splitter_movie_state
+        )
+        layout.addWidget(self._splitter_movie, 1)
         return box
 
-    def _browse_movie(self) -> None:
-        # 从当前正片目录的父目录起步，方便看到并选择同级目录
-        start = None
-        cur = self.movie_path.text().strip()
-        if cur:
-            parent = os.path.dirname(cur.rstrip("\\/"))
-            if parent and os.path.isdir(parent):
-                start = parent
-        used_native, path = pick_native_folder(self, "选择正片目录", start)
-        if not used_native:
-            path = QFileDialog.getExistingDirectory(self, "选择文件夹", start or "")
-        elif path is None:
-            if last_error():
-                QMessageBox.warning(
-                    self, "选择失败",
-                    f"原生目录选择出错：{last_error()}\n\n详细日志见 ~/.trailermatch/native_picker.log",
-                )
+    # ---------- 正片目录 ----------
+    def _movie_dirs(self) -> list:
+        return [self.movie_dirs.item(i).text() for i in range(self.movie_dirs.count())]
+
+    def _movie_start_dir(self) -> str:
+        """优先从上次选择的父目录起步（正片独立的父目录记忆），
+        首次使用时退回最近一个正片目录的父目录。"""
+        parent = self.config.last_movie_parent
+        if parent and os.path.isdir(parent):
+            return parent
+        dirs = self._movie_dirs()
+        if not dirs:
+            return ""
+        parent = os.path.dirname(dirs[-1].rstrip("\\/"))
+        if parent and os.path.isdir(parent):
+            return parent
+        return ""
+
+    def _remember_movie_parent(self, paths: list) -> None:
+        """记住本次选择目录的共同父目录并保存，清空/重启后选择器仍停在父目录。"""
+        if not paths:
             return
-        if path:
-            self.movie_path.setText(path)
+        try:
+            if len(paths) == 1:
+                parent = os.path.dirname(paths[0])
+            else:
+                parent = os.path.commonpath(os.path.dirname(p) for p in paths)
+        except (ValueError, OSError):
+            return
+        if parent and os.path.isdir(parent) and self.config.last_movie_parent != parent:
+            self.config.last_movie_parent = parent
+            self.config.save()
+
+    def _add_movie_dir(self) -> None:
+        used_native, paths = pick_native_folders(
+            self, "添加正片目录", self._movie_start_dir(), client_guid=_CLIENT_GUID_MOVIE
+        )
+        if not used_native:
+            dlg = QFileDialog(self, "添加正片目录")
+            dlg.setFileMode(QFileDialog.Directory)
+            dlg.setOption(QFileDialog.DontUseNativeDialog, True)
+            dlg.setOption(QFileDialog.ShowDirsOnly, True)
+            views = dlg.findChildren(QListView) + dlg.findChildren(QTreeView)
+            for view in views:
+                view.setSelectionMode(QAbstractItemView.MultiSelection)
+            if not dlg.exec():
+                return
+            paths = dlg.selectedFiles()
+        elif paths is None:
+            QMessageBox.warning(
+                self, "选择失败",
+                f"原生目录选择出错：{last_error()}\n\n详细日志见 ~/.trailermatch/native_picker.log",
+            )
+            return
+        if not paths:
+            return
+        self._remember_movie_parent(paths)
+        existing = {d.lower().rstrip("\\/") for d in self._movie_dirs()}
+        added = 0
+        for path in paths:
+            if not path:
+                continue
+            key = path.lower().rstrip("\\/")
+            if key not in existing:
+                self.movie_dirs.addItem(path)
+                existing.add(key)
+                added += 1
+        if added:
+            self._save_movie_dirs()
             self.scan_movies()
+
+    def _del_movie_dir(self) -> None:
+        for item in self.movie_dirs.selectedItems():
+            self.movie_dirs.takeItem(self.movie_dirs.row(item))
+        self._save_movie_dirs()
+        self.scan_movies()
+
+    def _clear_movie_dirs(self) -> None:
+        self.movie_dirs.clear()
+        self._save_movie_dirs()
+        self.scan_movies()
+
+    def _save_movie_dirs(self) -> None:
+        self.config.movie_dirs = self._movie_dirs()
+        self.config.save()
 
     # ---------- 预告片目录 ----------
     def _trailer_dirs(self) -> list:
@@ -419,7 +513,7 @@ class MainWindow(QMainWindow):
     def _restore_paths(self) -> None:
         if self._trailer_dirs():
             self.scan_trailers()
-        if self.movie_path.text() and Path(self.movie_path.text()).is_dir():
+        if self._movie_dirs():
             self.scan_movies()
 
     def scan_trailers(self) -> None:
@@ -453,13 +547,17 @@ class MainWindow(QMainWindow):
         self.config.save()
 
     def scan_movies(self) -> None:
-        path = self.movie_path.text().strip()
-        if not path:
+        dirs = self._movie_dirs()
+        if not dirs:
+            self._movies = []
+            self.movie_list.clear()
+            self.movie_count.setText("0 部电影")
+            self._movie_map = {}
             return
         self.btn_scan_movies.setEnabled(False)
         seq = self._movie_scan_seq + 1
         self._movie_scan_seq = seq
-        worker = ScanMoviesWorker(path)
+        worker = ScanMoviesWorker(dirs)
         worker.done.connect(lambda movies, s=seq: self._on_movies_scanned(movies, s))
         self._scan_workers.append(worker)
         worker.start()
@@ -476,7 +574,7 @@ class MainWindow(QMainWindow):
         self.movie_count.setText(f"{len(movies)} 部电影")
         self.btn_scan_movies.setEnabled(True)
         self.log(f"扫描正片完成，共 {len(movies)} 部")
-        self.config.movie_dir = self.movie_path.text().strip()
+        self.config.movie_dirs = self._movie_dirs()
         self.config.save()
         self.table.set_movie_names([m.name for m in movies])
 
@@ -597,7 +695,7 @@ class MainWindow(QMainWindow):
         # 重新扫描两侧，更新目录列表
         if self._trailer_dirs():
             self.scan_trailers()
-        if self.movie_path.text().strip():
+        if self._movie_dirs():
             self.scan_movies()
 
     # ---------- 工具 ----------

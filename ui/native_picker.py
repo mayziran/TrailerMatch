@@ -241,8 +241,12 @@ def _show_dialog(parent, title: str, extra_options: int, start_dir: str, client_
         raise
 
 
-def pick_native_folders(parent=None, title="选择文件夹", start_dir=None):
-    """弹出原生文件夹多选对话框。返回 (used_native, paths)。"""
+def pick_native_folders(parent=None, title="选择文件夹", start_dir=None,
+                        client_guid=_CLIENT_GUID_TRAILER):
+    """弹出原生文件夹多选对话框。返回 (used_native, paths)。
+
+    client_guid 用不同 GUID 隔离各自“上次位置”记忆（预告片/正片互不影响）。
+    """
     if sys.platform != "win32" or ole32 is None:
         return False, []
     _last_error[0] = None
@@ -251,7 +255,7 @@ def pick_native_folders(parent=None, title="选择文件夹", start_dir=None):
     ole32.CoInitializeEx(None, COINIT_APARTMENTTHREADED)
     try:
         status, dialog = _show_dialog(
-            parent, title, FOS_ALLOWMULTISELECT, start_dir, _CLIENT_GUID_TRAILER
+            parent, title, FOS_ALLOWMULTISELECT, start_dir, client_guid
         )
         if status != "ok":
             # cancel -> (True, []); fail -> (False, []) 允许回退 Qt

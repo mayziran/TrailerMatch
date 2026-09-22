@@ -132,3 +132,23 @@ def scan_movies(movie_dir: Path) -> list:
             )
     movies.sort(key=lambda m: m.name.lower())
     return movies
+
+
+def scan_movie_dirs(movie_dirs: list) -> list:
+    """聚合扫描多个正片目录，按路径去重。
+
+    排序：按用户添加的目录分组（按目录路径排序），
+    同目录内沿用 scan_movies 的按电影名排序。
+    同一物理文件夹被多个根目录扫到时只保留一次；
+    同名但不同路径的电影全部保留（不特殊处理）。
+    """
+    seen = set()
+    items = []
+    for d in movie_dirs:
+        for m in scan_movies(d):
+            key = str(m.folder).lower()
+            if key not in seen:
+                seen.add(key)
+                items.append((d, m))
+    items.sort(key=lambda pair: str(pair[0]).lower())
+    return [m for _, m in items]

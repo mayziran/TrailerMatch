@@ -6,7 +6,7 @@ from core.ai_client import _extract_json
 from core.config import Config
 from core.matcher import MatchResult, _mark_conflicts
 from core.operations import move_trailer
-from core.scanner import Movie, TrailerFile, scan_movies, scan_trailer_dirs
+from core.scanner import Movie, TrailerFile, scan_movie_dirs, scan_movies, scan_trailer_dirs
 
 
 def test_extract_json():
@@ -131,6 +131,40 @@ def test_trailer_dirs_group_by_dir():
     print("trailer_dirs_group_by_dir ok")
 
 
+def test_scan_movie_dirs():
+    """多正片目录应聚合扫描，按目录路径分组排序。"""
+    from core.scanner import scan_movie_dirs
+
+    with TemporaryDirectory() as td:
+        root = Path(td)
+        a = root / "aaa"
+        b = root / "bbb"
+        for d, f in ((a / "Zoo", "Zoo.2020.mkv"), (a / "Alpha", "Alpha.2019.mkv"), (b / "Gamma", "Gamma.2021.mkv")):
+            d.mkdir(parents=True)
+            (d / f).write_bytes(b"x")
+        movies = scan_movie_dirs([str(a), str(b)])
+        names = [m.name for m in movies]
+        assert len(movies) == 3
+        # aaa 目录整体在前（组内按电影名 Alpha, Zoo），bbb 目录在后
+        assert names == ["Alpha.2019", "Zoo.2020", "Gamma.2021"], names
+    print("scan_movie_dirs ok")
+
+
+def test_scan_movie_dirs_dedup():
+    """同一物理文件夹被多个根目录扫到时只保留一次。"""
+    from core.scanner import scan_movie_dirs
+
+    with TemporaryDirectory() as td:
+        root = Path(td)
+        sub = root / "sub"
+        movie_dir = sub / "Movie"
+        movie_dir.mkdir(parents=True)
+        (movie_dir / "movie.mkv").write_bytes(b"x")
+        movies = scan_movie_dirs([str(sub), str(sub)])
+        assert len(movies) == 1, len(movies)
+    print("scan_movie_dirs dedup ok")
+
+
 def test_movie_name_from_file():
     """电影名应以文件夹内主视频文件名为准，且排除已重命名的预告片。"""
     with TemporaryDirectory() as td:
@@ -232,6 +266,8 @@ if __name__ == "__main__":
     test_scan_multiple_dirs()
     test_trailer_order_folder_first()
     test_trailer_dirs_group_by_dir()
+    test_scan_movie_dirs()
+    test_scan_movie_dirs_dedup()
     test_movie_name_from_file()
     test_file_based_rename()
     test_op_modes()

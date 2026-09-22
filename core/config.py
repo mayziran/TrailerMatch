@@ -36,7 +36,7 @@ class Config:
     model: str = "gpt-4o-mini"
     temperature: float = 0.0
     trailer_dirs: list = field(default_factory=list)  # 预告片目录（支持多个）
-    movie_dir: str = ""
+    movie_dirs: list = field(default_factory=list)  # 正片目录（支持多个）
     trailer_regexes: list = field(default_factory=list)
     min_confidence: int = 60
     match_mode: str = "batch"   # batch=批量一次调用 / candidate=逐条候选匹配
@@ -44,9 +44,11 @@ class Config:
     op_mode: str = "move"        # move=移动 / copy=复制 / hardlink=硬链接
     use_folder_match: bool = False  # 匹配时用预告片所在文件夹名代替文件名
     last_trailer_parent: str = ""  # 上次选择预告片目录的父目录（选择器打开位置）
+    last_movie_parent: str = ""      # 上次选择正片目录的父目录（选择器打开位置）
     splitter_h_state: str = ""           # 左右分栏位置（base64，跨启动记忆）
     splitter_v_state: str = ""           # 主纵向分栏位置（base64）
     splitter_trailer_state: str = ""     # 预告片面板内部分栏位置（base64）
+    splitter_movie_state: str = ""        # 正片面板内部分栏位置（base64）
     window_geometry: str = ""            # 主窗口位置/大小（base64）
     table_col_widths: list = field(default_factory=list)  # 结果表各列宽
 
