@@ -75,6 +75,19 @@ def _pick_candidates(trailer_name: str, movies: list, max_candidates: int) -> li
     return [movies[i] for _s, _score, i in best]
 
 
+def match_name(trailer: TrailerFile, config: Config) -> str:
+    """决定发给 AI / 本地预筛用的名称。
+
+    勾选「用所在文件夹名匹配」时使用预告片所在文件夹名，
+    适用于 sample-1280x720.mp4 这类文件名无信息、文件夹名含电影名的情况。
+    """
+    if config.use_folder_match:
+        folder = trailer.path.parent.name
+        if folder:
+            return folder
+    return trailer.name
+
+
 def run_match(
     trailers: list,
     movies: list,
@@ -113,13 +126,13 @@ def _run_candidate(
     for i, trailer in enumerate(trailers):
         if cancel_event is not None and cancel_event.is_set():
             break
-        candidates = _pick_candidates(trailer.name, movies, config.max_candidates)
+        candidates = _pick_candidates(match_name(trailer, config), movies, config.max_candidates)
         if not candidates:
             results.append(MatchResult(trailer=trailer))
         else:
             try:
                 answer = client.ask_match(
-                    trailer.name, [m.name for m in candidates]
+                    match_name(trailer, config), [m.name for m in candidates]
                 )
             except Exception as exc:
                 if cancel_event is not None and cancel_event.is_set():
@@ -186,7 +199,7 @@ def _run_batch(
             break
         try:
             answers = client.ask_batch(
-                [t.name for t in trailers], [m.name for m in movies]
+                [match_name(t, config) for t in trailers], [m.name for m in movies]
             )
             break
         except Exception as exc:

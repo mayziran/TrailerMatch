@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import QByteArray, QSize, Qt, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QAbstractItemView, QApplication, QComboBox, QFileDialog, QGroupBox,
+    QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog, QGroupBox,
     QHBoxLayout, QLabel, QLineEdit, QListView, QListWidget, QMainWindow,
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSplitter,
     QTreeView, QVBoxLayout, QWidget,
@@ -108,6 +108,7 @@ class MainWindow(QMainWindow):
         # 结果表格
         self.table = MatchTable()
         self.table.set_column_widths(self.config.table_col_widths)
+        self.table.set_show_folder(self.config.use_folder_match)
         self.table.horizontalHeader().sectionResized.connect(
             self._schedule_layout_save
         )
@@ -232,8 +233,16 @@ class MainWindow(QMainWindow):
         scan_row = QHBoxLayout()
         self.btn_scan_trailers = QPushButton("扫描预告片")
         self.btn_scan_trailers.clicked.connect(self.scan_trailers)
+        self.chk_folder_match = QCheckBox("用所在文件夹名匹配")
+        self.chk_folder_match.setChecked(self.config.use_folder_match)
+        self.chk_folder_match.setToolTip(
+            "勾选后，匹配时用预告片所在的子文件夹名代替文件名\n"
+            "（适用于 sample-1280x720.mp4 这类文件名无信息、文件夹名含电影名的预告片）"
+        )
+        self.chk_folder_match.toggled.connect(self._on_folder_match_toggled)
         self.trailer_count = QLabel("0 个预告片")
         scan_row.addWidget(self.btn_scan_trailers)
+        scan_row.addWidget(self.chk_folder_match)
         scan_row.addStretch(1)
         scan_row.addWidget(self.trailer_count)
         list_layout.addLayout(scan_row)
@@ -541,6 +550,13 @@ class MainWindow(QMainWindow):
         if mode and mode != self.config.op_mode:
             self.config.op_mode = mode
             self.config.save()
+
+    def _on_folder_match_toggled(self) -> None:
+        checked = self.chk_folder_match.isChecked()
+        if checked != self.config.use_folder_match:
+            self.config.use_folder_match = checked
+            self.config.save()
+        self.table.set_show_folder(checked)
 
     # ---------- 设置 ----------
     def open_settings(self) -> None:

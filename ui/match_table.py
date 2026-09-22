@@ -26,6 +26,7 @@ class MatchTable(QTableWidget):
         self._results = []
         self._movie_names = []
         self._filling = False
+        self._show_folder = False  # 预告片列是否显示 文件夹名/文件名
         self.setColumnCount(6)
         self.setHorizontalHeaderLabels(
             ["确认", "预告片文件", "匹配正片", "置信度", "状态", "理由"]
@@ -58,6 +59,20 @@ class MatchTable(QTableWidget):
     def set_movie_names(self, names: list) -> None:
         self._movie_names = sorted(names)
 
+    def set_show_folder(self, show: bool) -> None:
+        """切换预告片列显示方式（文件夹名/文件名），并即时更新已有行。"""
+        self._show_folder = bool(show)
+        for row in range(self.rowCount()):
+            r = self._results[row]
+            item = self.item(row, 1)
+            if item is not None:
+                item.setText(self._trailer_display(r))
+
+    def _trailer_display(self, r: MatchResult) -> str:
+        if self._show_folder:
+            return f"{r.trailer.path.parent.name}/{r.trailer.name}"
+        return r.trailer.name
+
     def set_results(self, results: list) -> None:
         self._results = results
         self.setRowCount(0)
@@ -77,7 +92,7 @@ class MatchTable(QTableWidget):
         self.setCellWidget(row, 0, cb)
 
         # 预告片文件
-        self.setItem(row, 1, QTableWidgetItem(r.trailer.name))
+        self.setItem(row, 1, QTableWidgetItem(self._trailer_display(r)))
 
         # 匹配正片（下拉，可手动改选）
         combo = QComboBox()

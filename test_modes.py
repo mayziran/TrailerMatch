@@ -74,6 +74,29 @@ def test_candidate_mode():
     print("candidate mode ok")
 
 
+def test_candidate_mode_uses_folder_name():
+    """启用 use_folder_match 后，应把预告片所在文件夹名发给 AI。"""
+    cfg = Config(match_mode="candidate", min_confidence=60, max_candidates=3)
+    received = {}
+
+    def fake_ask_match(trailer_name, candidates):
+        received["name"] = trailer_name
+        return {"movie": candidates[0], "confidence": 90, "reason": "ok"}
+
+    matcher_mod.AIClient.ask_match = staticmethod(fake_ask_match)
+    t = TrailerFile(Path("trailers") / "Home Alone (1990)" / "sample-1280x720.mp4")
+    results = run_match([t], movies(), cfg)
+    # 默认不勾选，仍用文件名
+    assert received["name"] == "sample-1280x720.mp4", received
+    assert results[0].status == "matched", results[0].status
+
+    # 勾选后改用文件夹名
+    cfg.use_folder_match = True
+    results = run_match([t], movies(), cfg)
+    assert received["name"] == "Home Alone (1990)", received
+    print("candidate folder name ok")
+
+
 def test_resolve_movie_fuzzy():
     ms = movies()
     assert _resolve_movie("Home Alone (1990)", ms).name == "Home Alone (1990)"
@@ -117,6 +140,7 @@ if __name__ == "__main__":
     test_batch_empty_movies()
     test_batch_conflict_marking()
     test_candidate_mode()
+    test_candidate_mode_uses_folder_name()
     test_resolve_movie_fuzzy()
     test_batch_fuzzy_fallback()
     test_batch_cancel_no_crash()
